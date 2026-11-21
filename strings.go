@@ -1,0 +1,33 @@
+package main
+
+// User-facing text, kept in one place.
+const (
+	strLibrary             = "Library"
+	strContents            = "Contents"
+	strEmptyDir            = "No Books Here"
+	strLibraryHints        = "Enter Open   / Find   p Places   a Save Place   . Hidden   c Theme   q Quit"
+	strReaderHints         = "Space Next Page   / Search   t Contents   v Spread   c Theme   + - Width   q Library"
+	strFindBooks           = "Find"
+	strNoBooks             = "No books under here"
+	strPlaces              = "Places"
+	strNoPlaces            = "No saved places yet; press a in a folder to save it"
+	strNoMatches           = "No matches"
+	strMissing             = "missing"
+	strPlaceSaved          = "Saved %s to places"
+	strPlaceKnown          = "%s is already in places"
+	strPlaceGone           = "%s is not there"
+	strPickerHints         = "Enter Open   Esc Close"
+	strPickerRemoveHints   = "Enter Go   Ctrl-D Remove   Esc Close"
+	strNotFound            = "Not found: %s"
+	strNoSearch            = "No previous search"
+	strSearchWrapped       = "Search wrapped around the book"
+	strMatchOf             = "%s   %d of %d in this chapter"
+	strContentsHints       = "/ Filter   Enter Go   Esc Close"
+	strContentsTypingHints = "Enter Go   Esc Done"
+	strNoContents          = "This book has no table of contents"
+	strHere                = "◂"
+	strPages               = "Pages"
+	strUntitled            = "Untitled"
+	strImageMissing        = "image"
+	strNoGraphics          = "this terminal does not draw kitty graphics; images are shown as placeholders"
+)
