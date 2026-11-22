@@ -183,9 +183,11 @@ func (r *Reader) plainText(ch int) []rune {
 	return t
 }
 
-func (r *Reader) startSearch(dir int) {
+// startSearch opens the prompt for a search forward through the book. N
+// searches back.
+func (r *Reader) startSearch() {
 	r.find.prompt = true
-	r.find.dir = dir
+	r.find.dir = 1
 	r.find.in = lineInput{}
 }
 

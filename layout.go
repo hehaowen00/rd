@@ -14,6 +14,10 @@ type Line struct {
 	Image *ImageRow // non-nil when this row is part of an image
 	Rule  bool
 	Break bool // a page must start at this line
+	// End marks the last line of a paragraph, and Pre a line of
+	// preformatted text, so copied text breaks where the book does.
+	End bool
+	Pre bool
 }
 
 // ImageRow is one terminal row of an image.
@@ -57,15 +61,29 @@ func layoutBlock(lines []Line, b Block, width, maxRows int, size ImageSizer) []L
 				alt = path.Base(b.Image)
 			}
 			b = Block{Spans: []Span{{Text: "[" + strImageMissing + ": " + alt + "]", Style: Dim | Italic}}}
-			return append(lines, wrap(b, width)...)
+			return append(lines, textLines(b, width)...)
 		}
 		for r := range rows {
 			lines = append(lines, Line{Image: &ImageRow{Path: b.Image, Row: r, Rows: rows, Cols: cols}})
 		}
 	default:
-		lines = append(lines, wrap(b, width)...)
+		lines = append(lines, textLines(b, width)...)
 	}
 	return lines
+}
+
+// textLines wraps a text block and marks its lines for copying.
+func textLines(b Block, width int) []Line {
+	ls := wrap(b, width)
+	for i := range ls {
+		ls[i].Pre = b.Pre
+	}
+
+	if len(ls) > 0 {
+		ls[len(ls)-1].End = true
+	}
+
+	return ls
 }
 
 // word is a run of non-space text, possibly spanning several styles.

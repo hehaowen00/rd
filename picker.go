@@ -157,12 +157,7 @@ func (p *picker) Key(ev *tcell.EventKey) (chosen *pickItem, done bool) {
 	case tcell.KeyPgDn:
 		p.view.move(p.rows, n)
 	case tcell.KeyCtrlD:
-		if it, ok := p.selected(); ok && p.remove != nil {
-			sel := p.view.sel
-			p.items = p.remove(it)
-			p.filter()
-			p.view.sel = max(min(sel, len(p.shown)-1), 0)
-		}
+		p.removeSelected()
 	default:
 		if p.in.key(ev) {
 			p.filter()
@@ -170,6 +165,21 @@ func (p *picker) Key(ev *tcell.EventKey) (chosen *pickItem, done bool) {
 	}
 
 	return nil, false
+}
+
+// removeSelected drops the selected item, if the picker can remove items,
+// and keeps the selection where it was.
+func (p *picker) removeSelected() {
+	it, ok := p.selected()
+	if !ok || p.remove == nil {
+		return
+	}
+
+	sel, top := p.view.sel, p.view.top
+	p.items = p.remove(it)
+	p.filter()
+	p.view.sel = max(min(sel, len(p.shown)-1), 0)
+	p.view.top = min(top, p.view.sel)
 }
 
 // normalKey handles a key in a vim picker's normal mode.
@@ -196,6 +206,8 @@ func (p *picker) normalKey(ev *tcell.EventKey) (chosen *pickItem, done bool) {
 			return nil, true
 		case '/':
 			p.typing = true
+		case 'x':
+			p.removeSelected()
 		}
 	}
 

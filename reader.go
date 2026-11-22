@@ -51,13 +51,34 @@ type Reader struct {
 
 	find search
 
-	// contents is the table of contents panel, when it is open.
-	contents *picker
-	panelW   int
-	keys     vimKeys
+	// panel is the side panel, when one is open: the table of contents or
+	// the bookmarks, as panelKind says.
+	panel     *picker
+	panelKind panelKind
+	panelW    int
+	keys      vimKeys
+
+	// help is the key reference, when it is open.
+	help *helpView
+
+	// sel is the text selected with the mouse, and shown where each page
+	// on screen was drawn, to find what the mouse is over.
+	sel   selection
+	shown []shownPage
+
+	// bookmarks is the saved store, and marks this book's bookmarks in it.
+	bookmarks *Bookmarks
+	marks     []Bookmark
 }
 
-func OpenReader(path string, graphics bool, pos Position, resume bool) (*Reader, error) {
+type panelKind int
+
+const (
+	panelContents panelKind = iota
+	panelBookmarks
+)
+
+func OpenReader(path string, graphics bool, pos Position, resume bool, bookmarks *Bookmarks) (*Reader, error) {
 	book, err := OpenBook(path)
 	if err != nil {
 		return nil, err
@@ -70,6 +91,11 @@ func OpenReader(path string, graphics bool, pos Position, resume bool) (*Reader,
 		width:   defaultTextWidth,
 		pending: -1,
 		columns: 1,
+	}
+
+	if bookmarks != nil {
+		r.bookmarks = bookmarks
+		r.marks = bookmarks.Get(path)
 	}
 
 	// the keys, until the first one is pressed
@@ -119,6 +145,7 @@ func (r *Reader) load(ch int) {
 	r.pending = -1
 	r.find.matches = nil
 	r.find.ix = textIndex{}
+	r.clearSelection()
 	r.blocks = r.parse(ch)
 }
 
@@ -168,7 +195,13 @@ func (r *Reader) lastPage() int {
 // setPage moves to page p, kept in range and on a spread's left page.
 func (r *Reader) setPage(p int) {
 	p = max(min(p, len(r.pages)-1), 0)
-	r.pg = p - p%r.columns
+	p -= p % r.columns
+
+	if p != r.pg {
+		r.clearSelection()
+	}
+
+	r.pg = p
 }
 
 // pageAt is the page holding line i.
@@ -192,6 +225,7 @@ func (r *Reader) layout(w, rows, cellW, cellH int) {
 	r.laid.w, r.laid.rows, r.laid.cellW, r.laid.cellH = w, rows, cellW, cellH
 	r.rows = rows
 	r.pending = -1
+	r.clearSelection()
 
 	switch {
 	case frac >= 1:
@@ -220,24 +254,15 @@ func (r *Reader) Position() Position {
 }
 
 // chapterTitle is the contents entry for the current chapter, if any.
-func (r *Reader) chapterTitle() string {
-	best := -1
-
-	for i, e := range r.book.TOC {
-		if e.Spine >= 0 && e.Spine <= r.chapter && (best < 0 || e.Spine > r.book.TOC[best].Spine) {
-			best = i
-		}
-	}
-
-	if best < 0 {
-		return ""
-	}
-
-	return r.book.TOC[best].Title
-}
+func (r *Reader) chapterTitle() string { return r.chapterTitleAt(r.chapter) }
 
 // Draw paints the reader and returns the images to place this frame.
 func (r *Reader) Draw(s tcell.Screen, cellW, cellH int) []placement {
+	if r.help != nil {
+		r.help.Draw(s)
+		return nil
+	}
+
 	w, h := s.Size()
 	margin := 2
 	inner := max(w-2*margin, 1)
@@ -268,6 +293,8 @@ func (r *Reader) Draw(s tcell.Screen, cellW, cellH int) []placement {
 
 	var ps []placement
 
+	r.shown = r.shown[:0]
+
 	for c := range r.columns {
 		p := r.pg + c
 		if p >= len(r.pages) {
@@ -284,7 +311,10 @@ func (r *Reader) Draw(s tcell.Screen, cellW, cellH int) []placement {
 		last := min(end, first+rows)
 		ps = append(ps, r.drawPage(s, x, textTop, textW, r.lines[first:last])...)
 		r.highlight(s, x, textTop, first, last)
+		r.shown = append(r.shown, shownPage{x: x, y: textTop, w: textW, first: first, last: last})
 	}
+
+	r.drawSelection(s)
 
 	pos := r.Position()
 	shown := fmt.Sprint(r.pg + 1)
@@ -292,7 +322,12 @@ func (r *Reader) Draw(s tcell.Screen, cellW, cellH int) []placement {
 		shown = fmt.Sprintf("%d-%d", r.pg+1, last)
 	}
 
-	right := fmt.Sprintf("p %s/%d   ch %d/%d   %3.0f%%", shown, len(r.pages), r.chapter+1, len(r.book.Spine), pos.Progress*100)
+	mark := ""
+	if r.bookmarkHere() >= 0 {
+		mark = strBookmarked + "   "
+	}
+
+	right := fmt.Sprintf("%sp %s/%d   ch %d/%d   %3.0f%%", mark, shown, len(r.pages), r.chapter+1, len(r.book.Spine), pos.Progress*100)
 	leftText := r.chapterTitle()
 
 	if r.msg != "" {
@@ -303,17 +338,12 @@ func (r *Reader) Draw(s tcell.Screen, cellW, cellH int) []placement {
 	put(s, margin+inner-rw, h-1, rw, right, styleDim)
 
 	if r.find.prompt {
-		prefix := "/"
-		if r.find.dir < 0 {
-			prefix = "?"
-		}
-
-		r.find.in.draw(s, margin, h-1, inner-rw-2, prefix)
+		r.find.in.draw(s, margin, h-1, inner-rw-2, "/")
 	} else {
 		put(s, margin, h-1, inner-rw-2, truncate(leftText, inner-rw-2), styleDim)
 	}
 
-	if r.contents != nil {
+	if r.panel != nil {
 		ps = r.drawContents(s, w, h, ps)
 	}
 	return ps
@@ -392,8 +422,16 @@ func (r *Reader) chapterBy(d int) {
 func (r *Reader) Key(ev *tcell.EventKey) (closeBook bool) {
 	r.msg = ""
 
-	if r.contents != nil {
-		r.contentsKey(ev)
+	if r.help != nil {
+		if r.help.Key(ev) {
+			r.help = nil
+		}
+
+		return false
+	}
+
+	if r.panel != nil {
+		r.panelKey(ev)
 		return false
 	}
 
@@ -415,6 +453,11 @@ func (r *Reader) Key(ev *tcell.EventKey) (closeBook bool) {
 	case tcell.KeyTab:
 		r.openContents()
 	case tcell.KeyEscape:
+		if r.sel.on {
+			r.clearSelection()
+			return false
+		}
+
 		if r.find.lit {
 			r.find.lit = false
 			return false
@@ -428,9 +471,9 @@ func (r *Reader) Key(ev *tcell.EventKey) (closeBook bool) {
 		case 'b', 'h':
 			r.prevPage()
 		case '/':
-			r.startSearch(1)
+			r.startSearch()
 		case '?':
-			r.startSearch(-1)
+			r.help = newHelp(strHelp, readerHelp)
 		case 'n':
 			r.searchNext(r.find.dir, false)
 		case 'N':
@@ -441,6 +484,10 @@ func (r *Reader) Key(ev *tcell.EventKey) (closeBook bool) {
 			r.chapterBy(-1)
 		case 't':
 			r.openContents()
+		case 'm':
+			r.toggleBookmark()
+		case '\'':
+			r.openBookmarks()
 		case '+', '=':
 			r.width += widthStep
 		case '-':
@@ -487,8 +534,13 @@ func (r *Reader) apply(m motion, count int, counted bool) {
 }
 
 func (r *Reader) Wheel(d int) {
-	if r.contents != nil {
-		r.contents.Wheel(d)
+	if r.help != nil {
+		r.help.Wheel(d)
+		return
+	}
+
+	if r.panel != nil {
+		r.panel.Wheel(d)
 		return
 	}
 

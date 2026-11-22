@@ -16,6 +16,7 @@ type App struct {
 	s         tcell.Screen
 	graphics  bool
 	positions *Positions
+	bookmarks *Bookmarks
 	lib       Library
 	reader    *Reader
 	buttons   tcell.ButtonMask
@@ -23,7 +24,7 @@ type App struct {
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "reader:", err)
+		fmt.Fprintln(os.Stderr, "rd:", err)
 		os.Exit(1)
 	}
 }
@@ -74,6 +75,7 @@ func run() error {
 		s:         s,
 		graphics:  graphics,
 		positions: LoadPositions(),
+		bookmarks: LoadBookmarks(),
 	}
 
 	a.lib.pos = a.positions
@@ -134,7 +136,10 @@ func (a *App) key(ev *tcell.EventKey) (quit bool) {
 
 func (a *App) mouse(ev *tcell.EventMouse) {
 	btn := ev.Buttons()
-	pressed := btn&tcell.Button1 != 0 && a.buttons&tcell.Button1 == 0
+	held := a.buttons&tcell.Button1 != 0
+	pressed := btn&tcell.Button1 != 0 && !held
+	dragged := btn&tcell.Button1 != 0 && held
+	released := btn&tcell.Button1 == 0 && held
 	a.buttons = btn
 	x, y := ev.Position()
 
@@ -145,6 +150,13 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 		a.wheel(1)
 	case pressed && a.reader != nil:
 		a.reader.Click(x, y)
+	case dragged && a.reader != nil:
+		a.reader.selectDrag(x, y)
+	case released && a.reader != nil:
+		if text := a.reader.selectEnd(x, y); text != "" {
+			a.rawWrite(osc52(text))
+			a.reader.msg = fmt.Sprintf(strCopied, runeCount(text))
+		}
 	case pressed:
 		if path := a.lib.Click(y); path != "" {
 			a.open(path)
@@ -155,6 +167,11 @@ func (a *App) mouse(ev *tcell.EventMouse) {
 func (a *App) wheel(d int) {
 	if a.reader != nil {
 		a.reader.Wheel(d)
+		return
+	}
+
+	if a.lib.help != nil {
+		a.lib.help.Wheel(d)
 		return
 	}
 
@@ -169,7 +186,7 @@ func (a *App) wheel(d int) {
 func (a *App) open(path string) {
 	pos, ok := a.positions.Get(path)
 
-	r, err := OpenReader(path, a.graphics, pos, ok)
+	r, err := OpenReader(path, a.graphics, pos, ok, a.bookmarks)
 	if err != nil {
 		a.lib.err = fmt.Sprintf("%s: %v", filepath.Base(path), err)
 		return

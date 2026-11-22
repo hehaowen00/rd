@@ -25,6 +25,8 @@ type Library struct {
 	pick    *picker
 	// pickBooks is true when pick is the book finder, false for places.
 	pickBooks bool
+	// help is the key reference, when it is open.
+	help *helpView
 }
 
 type libEntry struct {
@@ -117,6 +119,11 @@ func (l *Library) selected() (libEntry, bool) {
 }
 
 func (l *Library) Draw(s tcell.Screen, pos *Positions) {
+	if l.help != nil {
+		l.help.Draw(s)
+		return
+	}
+
 	if l.pick != nil {
 		l.pick.Draw(s)
 		return
@@ -189,6 +196,14 @@ func (l *Library) Draw(s tcell.Screen, pos *Positions) {
 func (l *Library) Key(ev *tcell.EventKey, pageRows int) (open string, quit bool) {
 	l.msg = ""
 
+	if l.help != nil {
+		if l.help.Key(ev) {
+			l.help = nil
+		}
+
+		return "", false
+	}
+
 	if l.pick != nil {
 		it, done := l.pick.Key(ev)
 		if done {
@@ -236,6 +251,8 @@ func (l *Library) Key(ev *tcell.EventKey, pageRows int) (open string, quit bool)
 			l.openPlaces()
 		case 'a':
 			l.savePlace()
+		case '?':
+			l.help = newHelp(strHelp, libraryHelp)
 		case 'q':
 			return "", true
 		}
@@ -368,6 +385,10 @@ func (l *Library) up() {
 
 // Click selects the row under the mouse; clicking the selected row opens it.
 func (l *Library) Click(y int) string {
+	if l.help != nil {
+		return ""
+	}
+
 	if l.pick != nil {
 		it := l.pick.Click(y)
 		if it == nil {

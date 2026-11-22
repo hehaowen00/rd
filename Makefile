@@ -1,5 +1,5 @@
 # `make help` lists the targets.
-BIN := reader
+BIN := rd
 PREFIX ?= $(HOME)/.local
 DESTDIR ?=
 
@@ -15,7 +15,7 @@ EXE := $(if $(filter windows,$(OS)),.exe)
 help:
 	@awk -F':.*## ' '/^[a-z0-9-]+:.*## /{printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-build: ## build ./reader
+build: ## build ./rd
 	go build -o $(BIN)$(EXE)
 
 run: build ## run it; DIR=~/Books or FILE=book.epub to start there
