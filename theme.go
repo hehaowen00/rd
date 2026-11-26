@@ -9,7 +9,8 @@ import (
 )
 
 // theme is a colour scheme. A colour left as ColorDefault falls back to the
-// terminal's own: the default theme sets none, and uses dim and reverse video.
+// terminal's own: the default theme sets none, and uses dim and reverse video,
+// until useTerminalColours fills it in from what the terminal reported.
 type theme struct {
 	name   string
 	fg, bg tcell.Color
@@ -50,7 +51,11 @@ func applyTheme(t theme) {
 	cur = t
 	styleNormal = tcell.StyleDefault.Foreground(t.fg).Background(t.bg)
 	styleDim = dim(styleNormal)
-	styleTitle = styleNormal.Bold(true).Foreground(t.title)
+	styleTitle = styleNormal.Bold(true)
+	if set(t.title) {
+		styleTitle = styleTitle.Foreground(t.title)
+	}
+
 	styleCode = styleNormal.Foreground(t.code)
 }
 

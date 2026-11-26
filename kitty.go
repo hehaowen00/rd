@@ -6,10 +6,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
-
-	"golang.org/x/sys/unix"
-	"golang.org/x/term"
 )
 
 // Every command carries q=2 so the terminal never answers onto the input
@@ -63,76 +59,17 @@ func kittyForget(id int) string {
 	return fmt.Sprintf("\x1b_Ga=d,d=I,i=%d,q=2\x1b\\", id)
 }
 
-// The terminal is asked whether it draws kitty pictures before tcell takes the
-// keyboard, since the reply arrives on the same input. A DA1 request follows
-// the query; terminals answer in order, so the DA1 reply marks the end.
-const kittyQuery = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c"
+// kittyQuery asks whether the terminal draws kitty pictures; askTerminal
+// sends it with the rest of its questions.
+const kittyQuery = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\"
 
-var (
-	kittyReply = regexp.MustCompile(`\x1b_Gi=31;OK`)
-	da1Reply   = regexp.MustCompile(`\x1b\[\?[0-9;]*c`)
-)
+var kittyReply = regexp.MustCompile(`\x1b_Gi=31;OK`)
 
-// DetectGraphics reports whether the terminal speaks the kitty graphics
-// protocol. READER_GRAPHICS=kitty forces it on for multiplexers that pass
-// pictures through but swallow the query.
-func DetectGraphics(timeout time.Duration) bool {
-	if os.Getenv("READER_GRAPHICS") == "kitty" {
-		return true
-	}
-
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return false
-	}
-
-	defer tty.Close()
-
-	fd := int(tty.Fd())
-
-	old, err := term.MakeRaw(fd)
-	if err != nil {
-		return false
-	}
-
-	defer term.Restore(fd, old)
-
-	if _, err := tty.WriteString(kittyQuery); err != nil {
-		return false
-	}
-
-	deadline := time.Now().Add(timeout)
-	var buf []byte
-	chunk := make([]byte, 1024)
-
-	for !da1Reply.Match(buf) {
-		left := time.Until(deadline)
-		if left <= 0 {
-			return false
-		}
-
-		fds := &unix.FdSet{}
-		fds.Set(fd)
-		tv := unix.NsecToTimeval(int64(left))
-
-		n, err := unix.Select(fd+1, fds, nil, nil, &tv)
-		if err == unix.EINTR {
-			continue
-		}
-
-		if err != nil || n == 0 {
-			return false
-		}
-
-		read, err := tty.Read(chunk)
-		buf = append(buf, chunk[:read]...)
-
-		if err != nil {
-			return false
-		}
-	}
-
-	return kittyReply.Match(buf)
+// graphicsIn reports whether the terminal speaks the kitty graphics protocol,
+// going by its answers. READER_GRAPHICS=kitty forces it on for multiplexers
+// that pass pictures through but swallow the query.
+func graphicsIn(reply []byte) bool {
+	return os.Getenv("READER_GRAPHICS") == "kitty" || kittyReply.Match(reply)
 }
 
 // cellAspect is how much taller than wide a cell is assumed to be when the

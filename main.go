@@ -56,9 +56,11 @@ func run() error {
 		}
 	}
 
-	loadTheme()
+	reply := askTerminal(500 * time.Millisecond)
+	graphics := graphicsIn(reply)
 
-	graphics := DetectGraphics(500 * time.Millisecond)
+	useTerminalColours(parseColours(reply))
+	loadTheme()
 
 	s, err := tcell.NewScreen()
 	if err != nil {
